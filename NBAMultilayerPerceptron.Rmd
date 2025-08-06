@@ -1,0 +1,148 @@
+---
+title: "NBA Multilayer Perceptron"
+output: html_document
+date: "2025-08-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(torch)
+library(dplyr)
+library(ggplot2)
+library(pROC)
+
+# Load data
+player_stats <- read.csv("~/Desktop/Stat 240/data/PlayerStatistics.csv")
+
+# Data cleaning: remove rows with NA in features or labels, and fix labels
+df_clean <- player_stats %>%
+  group_by(personId) %>%
+  mutate(avg_points = mean(points, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(above_avg = ifelse(points > avg_points, 1L, 0L)) %>%
+  filter(
+    !is.na(numMinutes), !is.na(assists), !is.na(reboundsTotal), !is.na(steals),
+    !is.na(blocks), !is.na(turnovers), !is.na(fieldGoalsAttempted), !is.na(fieldGoalsMade),
+    !is.na(freeThrowsAttempted), !is.na(freeThrowsMade), !is.na(above_avg)
+  ) %>%
+  mutate(above_avg = ifelse(above_avg > 0, 1L, 0L))
+
+# Select features and labels
+features <- df_clean %>%
+  select(numMinutes, assists, reboundsTotal, steals, blocks, turnovers,
+         fieldGoalsAttempted, fieldGoalsMade, freeThrowsAttempted, freeThrowsMade)
+
+labels <- df_clean$above_avg
+
+# Normalize features (scale to mean=0, sd=1)
+features_scaled <- scale(features)
+
+# Train-test split (80%-20%)
+set.seed(123)
+train_idx <- sample(1:nrow(features_scaled), 0.8 * nrow(features_scaled))
+x_train <- features_scaled[train_idx, ]
+y_train <- labels[train_idx]
+
+x_test <- features_scaled[-train_idx, ]
+y_test <- labels[-train_idx]
+
+# Convert to torch tensors and flatten labels
+x_train_t <- torch_tensor(as.matrix(x_train), dtype = torch_float())
+y_train_t <- torch_tensor(as.integer(y_train), dtype = torch_float())$view(-1)
+
+x_test_t <- torch_tensor(as.matrix(x_test), dtype = torch_float())
+y_test_t <- torch_tensor(as.integer(y_test), dtype = torch_float())$view(-1)
+
+# Define the neural network WITHOUT sigmoid at output
+net <- nn_module(
+  initialize = function() {
+    self$fc1 <- nn_linear(ncol(x_train), 64)
+    self$dropout1 <- nn_dropout(0.3)
+    self$fc2 <- nn_linear(64, 32)
+    self$output <- nn_linear(32, 1)
+  },
+  forward = function(x) {
+    x %>%
+      self$fc1() %>%
+      nnf_relu() %>%
+      self$dropout1() %>%
+      self$fc2() %>%
+      nnf_relu() %>%
+      self$output()
+  }
+)
+
+model <- net()
+
+# Setup optimizer and BCE with logits loss
+optimizer <- optim_adam(model$parameters, lr = 0.001)
+loss_fn <- nn_bce_with_logits_loss()
+
+# Training parameters
+num_epochs <- 10   # you can adjust to 5-10 epochs
+batch_size <- 64
+num_batches <- ceiling(nrow(x_train) / batch_size)
+
+train_losses <- numeric(num_epochs)
+
+for (epoch in 1:num_epochs) {
+  model$train()
+  total_loss <- 0
+  
+  for (batch in 1:num_batches) {
+    start_idx <- (batch - 1) * batch_size + 1
+    end_idx <- min(batch * batch_size, nrow(x_train))
+    
+    inputs <- x_train_t[start_idx:end_idx, ]
+    labels <- y_train_t[start_idx:end_idx]
+    
+    optimizer$zero_grad()
+    outputs <- model(inputs)$squeeze()
+    
+    loss <- loss_fn(outputs, labels)
+    loss$backward()
+    optimizer$step()
+    
+    total_loss <- total_loss + loss$item()
+  }
+  
+  avg_loss <- total_loss / num_batches
+  cat(sprintf("Epoch %d/%d, Loss: %.4f\n", epoch, num_epochs, avg_loss))
+}
+
+# Evaluation
+model$eval()
+with_no_grad({
+  logits <- model(x_test_t)$squeeze()
+  preds <- torch_sigmoid(logits)
+  pred_labels <- ifelse(as_array(preds) > 0.5, 1, 0)
+  
+  accuracy <- mean(pred_labels == as_array(y_test_t))
+  cat(sprintf("Test Accuracy: %.2f%%\n", accuracy * 100))
+})
+
+# Confusion matrix
+print(table(Predicted = pred_labels, Actual = as_array(y_test_t)))
+
+# ROC Curve visualization
+roc_obj <- roc(as_array(y_test_t), as_array(preds))
+
+ggplot(data.frame(
+  tpr = roc_obj$sensitivities,
+  fpr = 1 - roc_obj$specificities
+), aes(x = fpr, y = tpr)) +
+  geom_line(color = "blue", size = 1.2) +
+  geom_abline(linetype = "dashed", color = "gray") +
+  labs(title = "ROC Curve - torch Model", x = "False Positive Rate", y = "True Positive Rate") +
+  theme_minimal()
+
+# Print AUC
+cat(sprintf("AUC: %.3f\n", auc(roc_obj)))
+
+```
+```
+
