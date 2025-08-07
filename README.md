@@ -3,8 +3,8 @@ I made a multiplayer perceptron model in R and trained it based on the question 
 
 ### ROC Curve for Perceptron
 
-![ROC Curve]([[shrivasshankar/images/ROCPerceptron.png](https://raw.githubusercontent.com/shrivasshankar/images/main](https://raw.githubusercontent.com/shrivasshankar/images/main//ROCPerceptron.png))
+![ROC Curve](https://raw.githubusercontent.com/shrivasshankar/images/main/ROCPerceptron.png))
 
 ### Perceptron Predictions
 
-![Perceptron Result]([[shrivasshankar/images/PerceptronResult.png](https://raw.githubusercontent.com/shrivasshankar/images/main/](https://raw.githubusercontent.com/shrivasshankar/images/main/PerceptronResult.png))
+![Perceptron Result](https://raw.githubusercontent.com/shrivasshankar/images/main/PerceptronResult.png))
